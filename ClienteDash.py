@@ -9,8 +9,6 @@ class ClienteDash:
         self.bandwidth_kbps = 0.0
         self.qualidade_escolhida = None
         self.servidor_ativo = None
-        
-        # Instanciando o nosso novo gerenciador de buffer
         self.buffer = BufferManager()
 
     def baixar_manifesto(self):
@@ -32,8 +30,7 @@ class ClienteDash:
 
     def baixar_e_medir_segmento(self, url_path):
         """
-        Baixa o segmento para a memória e retorna o tempo que levou e os bytes recebidos.
-        Não salva no disco rígido.
+        Baixa o segmento para o buffer e retorna o tempo que levou e os bytes recebidos.
         """
         url_completa = f"{self.servidor_ativo}{url_path}"
         
@@ -78,7 +75,7 @@ class ClienteDash:
         self.qualidade_escolhida = self.manifesto["representations"][0]
 
         print("\n" + "="*50)
-        print(" INICIANDO STREAMING (LOOP DE REPRODUÇÃO)")
+        print(" INICIANDO STREAMING")
         print("="*50)
 
         # Loop de download de cada segmento
@@ -97,8 +94,7 @@ class ClienteDash:
                 # 3. Atualiza o Buffer e vê se o vídeo travou
                 can_play, stall = self.buffer.processar_download(tempo_download, duracao_segmento_s)
                 
-                # AQUI ENTRARIA O CÓDIGO PARA SALVAR NO CSV (Tarefa 1.2)
-                # gerar_linha_csv(i, qualidade, vazao, buffer, can_play, stall...)
+                # IMPLEMENTAR PARTE DO CSV (1.2)
                 
                 # 4. Com a nova banda medida, recalcula a qualidade para o PRÓXIMO loop
                 self.selecionar_qualidade()

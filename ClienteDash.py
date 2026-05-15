@@ -14,6 +14,8 @@ class ClienteDash:
         self.buffer = BufferManager()
         self.latencia_anterior_s = None
         self.jitter_ms = 0.0
+        self.download_time_s = 0.0
+        self.tamanho_segmento_bits = 0
 
     def baixar_manifesto(self):
         print("\n[*] Tentando baixar o manifesto...")
@@ -40,13 +42,20 @@ class ClienteDash:
             writer = csv.writer(f)
             writer.writerow([
                 "segmento", 
-                "vazao_kbps", 
-                "jitter_ms", 
-                "nivel_buffer_s", 
-                "qualidade", 
-                "rebuffering",
+                "timestamp",
+                "server_id",
+                "qualidade",
+                "bitrate_kbps",
+                "vazao_kbps",
+                "download_time_s",
+                "jitter_network_ms",
+                "jitter_ewma_ms",
+                "jitter_ms", # Campo temporário só pra apresentar a 1° entrega
+                "buffer_level_s",
                 "buffer_can_play",
-                "stall_duration_s"
+                "rebuffer_event",
+                "stall_duration_s",
+                "failover_total"
             ])
             
     def registrar_csv(self, num_segmento, can_play, stall):        
@@ -58,13 +67,20 @@ class ClienteDash:
             writer = csv.writer(f)
             writer.writerow([
                 num_segmento,
+                None, # No momento não se aplica
+                None, # No momento não se aplcia
+                self.qualidade_escolhida["quality"],
+                self.qualidade_escolhida["bitrate_kbps"],
                 round(self.bandwidth_kbps, 2),
+                round(self.download_time_s, 2),
+                None, # No momento não se aplica
+                None, # No momento não se aplica
                 round(self.jitter_ms, 2),
                 round(self.buffer.nivel_atual_s, 2),
-                self.qualidade_escolhida["quality"],
-                rebuffer_event,
                 can_play,
-                round(stall, 2)
+                rebuffer_event,
+                round(stall, 2),
+                None # No momento não se aplica
             ])
 
     def baixar_e_medir_segmento(self, url_path):
@@ -79,8 +95,8 @@ class ClienteDash:
             final = time.time()
 
             if response.status_code == 200:
-                tempo_download = final - inicio
-                tamanho_bits = len(response.content) * 8
+                self.download_time_s = final - inicio
+                self.tamanho_segmento_bits = len(response.content) * 8
 
                 # A função extrai o TTFB, que é o time to first byte
                 # É quanto tempo demora desde a requisição até o recebimento do 1° byte do pacte
@@ -95,12 +111,12 @@ class ClienteDash:
 
                 self.latencia_anterior_s = latencia_atual_s
 
-                return tempo_download, tamanho_bits
+                return True
 
         except requests.RequestException as e:
             print(f"    [Erro de Rede] Falha ao baixar o segmento: {e}")
             
-        return 0, 0
+        return False
 
     def selecionar_qualidade(self):
         """ Política 1 (Rate-Based) com 20% de margem de segurança """
@@ -122,7 +138,7 @@ class ClienteDash:
             return
 
         self.inicializar_csv("output/log_baseline.csv")
-        duracao_segmento_s = self.manifesto.get("segment_duration_s", 2.0)
+        duracao_segmento_s = self.manifesto.get("segment_duration_s")
  
         # Forçamos a primeira qualidade a ser a mais baixa por segurança.
         self.qualidade_escolhida = self.manifesto["representations"][0]
@@ -137,15 +153,15 @@ class ClienteDash:
             print(f"    Pedindo qualidade: {self.qualidade_escolhida['quality']} ({self.qualidade_escolhida['bitrate_kbps']} kbps)")
             
             # 1. Faz o download do vídeo e anota o tempo
-            tempo_download, tamanho_bits = self.baixar_e_medir_segmento(self.qualidade_escolhida["url_path"])
+            sucesso = self.baixar_e_medir_segmento(self.qualidade_escolhida["url_path"])
             
-            if tempo_download > 0:
+            if sucesso:
                 # 2. Atualiza a banda calculada (em kbps)
-                self.bandwidth_kbps = (tamanho_bits / tempo_download) / 1000
-                print(f"    Download finalizado em {tempo_download:.2f}s | Vazão medida: {self.bandwidth_kbps:.2f} kbps")
+                self.bandwidth_kbps = (self.tamanho_segmento_bits / self.download_time_s) / 1000
+                print(f"    Download finalizado em {self.download_time_s:.2f}s | Vazão medida: {self.bandwidth_kbps:.2f} kbps")
                 
                 # 3. Atualiza o Buffer e vê se o vídeo travou
-                can_play, stall = self.buffer.processar_download(tempo_download, duracao_segmento_s)
+                can_play, stall = self.buffer.processar_download(self.download_time_s, duracao_segmento_s)
                 
                 # CSV
                 self.registrar_csv(i, can_play, stall)

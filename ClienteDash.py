@@ -12,6 +12,8 @@ class ClienteDash:
         self.qualidade_escolhida = None
         self.servidor_ativo = None
         self.buffer = BufferManager()
+        self.latencia_anterior_s = None
+        self.jitter_ms = 0.0
 
     def baixar_manifesto(self):
         print("\n[*] Tentando baixar o manifesto...")
@@ -36,34 +38,33 @@ class ClienteDash:
         
         with open(self.nome_arquivo_csv, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            # Colunas restritas à Tarefa 1
             writer.writerow([
                 "segmento", 
                 "vazao_kbps", 
                 "jitter_ms", 
                 "nivel_buffer_s", 
                 "qualidade", 
-                "rebuffering", 
-                "buffer_can_play"
+                "rebuffering",
+                "buffer_can_play",
+                "stall_duration_s"
             ])
             
-    def registrar_csv(self, num_segmento, can_play, stall_duration_s):
-        # Na Tarefa 1, o jitter ainda não é tratado, então iniciamos com 0
-        jitter_ms = 0.0 
-        
-        # O campo de rebuffering é um booleano (1 se travou, 0 se não)
-        rebuffer_event = 1 if stall_duration_s > 0 else 0
+    def registrar_csv(self, num_segmento, can_play, stall):        
+        # O buffer_can_play é literalmente o inverso do indicador do rebuffering
+        # Se ele pode tocar, é pq não houve rebuffering
+        rebuffer_event = int(not can_play)
         
         with open(self.nome_arquivo_csv, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
                 num_segmento,
                 round(self.bandwidth_kbps, 2),
-                round(jitter_ms, 2),
+                round(self.jitter_ms, 2),
                 round(self.buffer.nivel_atual_s, 2),
                 self.qualidade_escolhida["quality"],
                 rebuffer_event,
-                can_play
+                can_play,
+                round(stall, 2)
             ])
 
     def baixar_e_medir_segmento(self, url_path):
@@ -80,8 +81,22 @@ class ClienteDash:
             if response.status_code == 200:
                 tempo_download = final - inicio
                 tamanho_bits = len(response.content) * 8
+
+                # A função extrai o TTFB, que é o time to first byte
+                # É quanto tempo demora desde a requisição até o recebimento do 1° byte do pacte
+                latencia_atual_s = response.elapsed.total_seconds()
+
+                if self.latencia_anterior_s is not None:
+                    # Jitter é a diferença de tempo entre cada pactore
+                    variacao_s = abs(latencia_atual_s - self.latencia_anterior_s)
+                    self.jitter_ms = variacao_s * 1000
+                else:
+                    self.jitter_ms = 0.0 # Seria o caso do 1° pacote, não tem jitter pq não tem com o que comparar
+
+                self.latencia_anterior_s = latencia_atual_s
+
                 return tempo_download, tamanho_bits
-            
+
         except requests.RequestException as e:
             print(f"    [Erro de Rede] Falha ao baixar o segmento: {e}")
             

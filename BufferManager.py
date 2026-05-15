@@ -13,17 +13,17 @@ class BufferManager:
         buffer_can_play = 1
         stall_duration_s = 0.0
 
-        # Passo 1: O player consumiu vídeo enquanto o download acontecia
+        # O player consumiu vídeo enquanto o download acontecia
         if self.nivel_atual_s >= tempo_download_s:
             # Tinha buffer suficiente, o vídeo rodou liso
             self.nivel_atual_s -= tempo_download_s
         else:
-            # O download demorou mais do que o buffer aguentava. O vídeo travou!
+            # O download demorou mais do que o buffer aguentava, o vídeo trava
             buffer_can_play = 0
             stall_duration_s = tempo_download_s - self.nivel_atual_s
             self.nivel_atual_s = 0.0  # Buffer zerou
 
-        # Passo 2: O download terminou, o novo trecho de vídeo entra no buffer
+        # O download terminou, o novo trecho de vídeo entra no buffer
         self.nivel_atual_s += duracao_segmento_s
 
         print(f"    [Buffer] Nível atual: {self.nivel_atual_s:.2f}s | Travou? {'Não' if buffer_can_play else f'Sim ({stall_duration_s:.2f}s)'}")

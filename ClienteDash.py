@@ -1,5 +1,7 @@
 import requests
 import time
+import csv
+import os
 from BufferManager import BufferManager
 
 class ClienteDash:
@@ -27,6 +29,42 @@ class ClienteDash:
                 print(f"    Falha no servidor {url_base}. Tentando próximo...")
         print("    Erro: Nenhum servidor disponível.")
         return False
+    
+    def inicializar_csv(self, nome_arquivo="output/log_baseline.csv"):
+        self.nome_arquivo_csv = nome_arquivo
+        os.makedirs(os.path.dirname(self.nome_arquivo_csv) if os.path.dirname(self.nome_arquivo_csv) else '.', exist_ok=True)
+        
+        with open(self.nome_arquivo_csv, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            # Colunas restritas à Tarefa 1
+            writer.writerow([
+                "segmento", 
+                "vazao_kbps", 
+                "jitter_ms", 
+                "nivel_buffer_s", 
+                "qualidade", 
+                "rebuffering", 
+                "buffer_can_play"
+            ])
+            
+    def registrar_csv(self, num_segmento, can_play, stall_duration_s):
+        # Na Tarefa 1, o jitter ainda não é tratado, então iniciamos com 0
+        jitter_ms = 0.0 
+        
+        # O campo de rebuffering é um booleano (1 se travou, 0 se não)
+        rebuffer_event = 1 if stall_duration_s > 0 else 0
+        
+        with open(self.nome_arquivo_csv, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                num_segmento,
+                round(self.bandwidth_kbps, 2),
+                round(jitter_ms, 2),
+                round(self.buffer.nivel_atual_s, 2),
+                self.qualidade_escolhida["quality"],
+                rebuffer_event,
+                can_play
+            ])
 
     def baixar_e_medir_segmento(self, url_path):
         """
@@ -68,9 +106,9 @@ class ClienteDash:
         if not self.baixar_manifesto():
             return
 
+        self.inicializar_csv("output/log_baseline.csv")
         duracao_segmento_s = self.manifesto.get("segment_duration_s", 2.0)
-        
-        # O player sempre começa no "escuro" (sem saber a banda). 
+ 
         # Forçamos a primeira qualidade a ser a mais baixa por segurança.
         self.qualidade_escolhida = self.manifesto["representations"][0]
 
@@ -94,7 +132,8 @@ class ClienteDash:
                 # 3. Atualiza o Buffer e vê se o vídeo travou
                 can_play, stall = self.buffer.processar_download(tempo_download, duracao_segmento_s)
                 
-                # IMPLEMENTAR PARTE DO CSV (1.2)
+                # CSV
+                self.registrar_csv(i, can_play, stall)
                 
                 # 4. Com a nova banda medida, recalcula a qualidade para o PRÓXIMO loop
                 self.selecionar_qualidade()
@@ -110,5 +149,4 @@ if __name__ == '__main__':
     ]
     
     cliente = ClienteDash(urls_de_bootstrap)
-    # Roda a simulação para 10 segmentos de vídeo
-    cliente.executar(num_segmentos_simulados=10)
+    cliente.executar(num_segmentos_simulados=20)

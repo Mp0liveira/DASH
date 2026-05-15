@@ -1,4 +1,5 @@
 import requests
+import datetime
 import time
 import csv
 import os
@@ -58,7 +59,7 @@ class ClienteDash:
                 "failover_total"
             ])
             
-    def registrar_csv(self, num_segmento, can_play, stall):        
+    def registrar_csv(self, num_segmento, can_play, stall, timestamp_iso):        
         # O buffer_can_play é literalmente o inverso do indicador do rebuffering
         # Se ele pode tocar, é pq não houve rebuffering
         rebuffer_event = int(not can_play)
@@ -67,7 +68,7 @@ class ClienteDash:
             writer = csv.writer(f)
             writer.writerow([
                 num_segmento,
-                None, # No momento não se aplica
+                timestamp_iso, # No momento não se aplica
                 None, # No momento não se aplcia
                 self.qualidade_escolhida["quality"],
                 self.qualidade_escolhida["bitrate_kbps"],
@@ -80,7 +81,7 @@ class ClienteDash:
                 can_play,
                 rebuffer_event,
                 round(stall, 2),
-                None # No momento não se aplica
+                0 # No momento não se aplica (total de failover = 0)
             ])
 
     def baixar_e_medir_segmento(self, url_path):
@@ -154,7 +155,8 @@ class ClienteDash:
             
             # 1. Faz o download do vídeo e anota o tempo
             sucesso = self.baixar_e_medir_segmento(self.qualidade_escolhida["url_path"])
-            
+            timestamp_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
             if sucesso:
                 # 2. Atualiza a banda calculada (em kbps)
                 self.bandwidth_kbps = (self.tamanho_segmento_bits / self.download_time_s) / 1000
@@ -164,7 +166,7 @@ class ClienteDash:
                 can_play, stall = self.buffer.processar_download(self.download_time_s, duracao_segmento_s)
                 
                 # CSV
-                self.registrar_csv(i, can_play, stall)
+                self.registrar_csv(i, can_play, stall, timestamp_iso)
                 
                 # 4. Com a nova banda medida, recalcula a qualidade para o PRÓXIMO loop
                 self.selecionar_qualidade()

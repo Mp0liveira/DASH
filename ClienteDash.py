@@ -68,8 +68,8 @@ class ClienteDash:
             writer = csv.writer(f)
             writer.writerow([
                 num_segmento,
-                timestamp_iso, # No momento não se aplica
-                None, # No momento não se aplcia
+                timestamp_iso,
+                "A", # No momento não se aplcia (tá sendo sempre o server principal, ainda não faz failover)
                 self.qualidade_escolhida["quality"],
                 self.qualidade_escolhida["bitrate_kbps"],
                 round(self.bandwidth_kbps, 2),

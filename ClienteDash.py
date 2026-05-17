@@ -4,6 +4,8 @@ import time
 import csv
 import os
 from BufferManager import BufferManager
+import pandas as pd
+import matplotlib.pyplot as plt
 
 class ClienteDash:
     def __init__(self, urls_iniciais):
@@ -59,31 +61,56 @@ class ClienteDash:
                 "failover_total"
             ])
             
-    def registrar_csv(self, num_segmento, can_play, stall, timestamp_iso):        
-        # O buffer_can_play é literalmente o inverso do indicador do rebuffering
-        # Se ele pode tocar, é pq não houve rebuffering
-        rebuffer_event = int(not can_play)
-        
-        with open(self.nome_arquivo_csv, mode='a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                num_segmento,
-                timestamp_iso,
-                "A", # No momento não se aplcia (tá sendo sempre o server principal, ainda não faz failover)
-                self.qualidade_escolhida["quality"],
-                self.qualidade_escolhida["bitrate_kbps"],
-                round(self.bandwidth_kbps, 2),
-                round(self.download_time_s, 2),
-                None, # No momento não se aplica
-                None, # No momento não se aplica
-                round(self.jitter_ms, 2),
-                round(self.buffer.nivel_atual_s, 2),
-                can_play,
-                rebuffer_event,
-                round(stall, 2),
-                0 # No momento não se aplica (total de failover = 0)
-            ])
-
+    def registrar_csv(self, num_segmento, buffer_can_play, stall, timestamp_iso):        
+            # Se houve tempo de stall (travamento), então houve um evento de rebuffering
+            rebuffer_event = 1 if stall > 0 else 0
+            
+            with open(self.nome_arquivo_csv, mode='a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    num_segmento,
+                    timestamp_iso,
+                    "A", # server_id (sempre A por enquanto)
+                    self.qualidade_escolhida["quality"],
+                    self.qualidade_escolhida["bitrate_kbps"],
+                    round(self.bandwidth_kbps, 2), # Vazão medida
+                    round(self.download_time_s, 2),
+                    round(self.jitter_ms, 2), # jitter_network_ms
+                    round(self.jitter_ms, 2), # jitter_ewma_ms (usando o mesmo por enquanto)
+                    round(self.jitter_ms, 2), # jitter_ms (seu campo extra)
+                    round(self.buffer.nivel_atual_s, 2), # Nível do buffer
+                    buffer_can_play, # 1 se rodou liso, 0 se travou
+                    rebuffer_event,  # 1 se travou, 0 se rodou liso
+                    round(stall, 2),
+                    0 # failover_total
+                ])
+    def gerar_graficos(self):
+        print("\n[*] Gerando gráficos de desempenho...")
+        try:
+            # Lê o arquivo CSV que acabamos de gerar
+            df = pd.read_csv(self.nome_arquivo_csv)
+            
+            plt.figure(figsize=(10, 5))
+            
+            # Plota a Vazão da rede (linha com bolinhas)
+            plt.plot(df['segmento'], df['vazao_kbps'], label='Vazão Medida (kbps)', color='blue', marker='o', alpha=0.6)
+            
+            # Plota a Qualidade escolhida (linha em degraus, padrão para ABR)
+            plt.step(df['segmento'], df['bitrate_kbps'], label='Qualidade Escolhida (kbps)', color='red', where='post', linewidth=2)
+            
+            plt.title('Baseline: Vazão da Rede vs Qualidade do Vídeo')
+            plt.xlabel('Número do Segmento')
+            plt.ylabel('Taxa (kbps)')
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.legend()
+            
+            # Salva a imagem na mesma pasta do CSV
+            caminho_grafico = self.nome_arquivo_csv.replace('.csv', '.png')
+            plt.savefig(caminho_grafico)
+            print(f"    [+] Gráfico salvo com sucesso em: {caminho_grafico}")
+            
+        except ImportError:
+            print("    [!] Erro: Instale o pandas e o matplotlib para gerar os gráficos (pip install pandas matplotlib).")            
     def baixar_e_medir_segmento(self, url_path):
         """
         Baixa o segmento para o buffer e retorna o tempo que levou e os bytes recebidos.
@@ -173,7 +200,7 @@ class ClienteDash:
             else:
                 print("    Falha crítica ao baixar segmento. Interrompendo streaming.")
                 break
-
+        self.gerar_graficos()
 
 if __name__ == '__main__':
     urls_de_bootstrap = [

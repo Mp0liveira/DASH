@@ -126,20 +126,48 @@ class ClienteDash:
         return False
 
 
-    def selecionar_qualidade(self):
+    def selecionar_qualidade_rate_based(self):
         """ Política 1 (Rate-Based) com 20% de margem de segurança """
         representacoes = self.manifesto["representations"]
         self.qualidade_escolhida = representacoes[0] # Fallback (pior qualidade)
 
         for rep in representacoes:
-            vazao_exigida_com_folga = rep["bitrate_kbps"] * 1.2
+            vazao_exigida_com_folga = rep["bitrate_kbps"] * 1
             if self.bandwidth_kbps >= vazao_exigida_com_folga:
                 self.qualidade_escolhida = rep
             else:
                 break
 
 
-    def executar(self, num_segmentos_simulados=10, nome_arquivo="output/log_baseline.csv"):
+    def selecionar_qualidade_buffer_based(self):
+        """ Política 2 (Buffer-Based): Ignora a vazão e olha só para a 'gordura' """
+        # Garante que as qualidades estão ordenadas da pior para a melhor
+        representacoes = sorted(self.manifesto["representations"], key=lambda k: k['bitrate_kbps'])
+        
+        nivel_buffer = self.buffer.nivel_atual_s
+        
+        BUFFER_MIN = 10.0 # Segundos (Abaixo disso é pânico)
+        BUFFER_MAX = 30.0 # Segundos (Acima disso é luxo)
+        
+        if nivel_buffer <= BUFFER_MIN:
+            # Zona de Pânico: Pior qualidade para sobreviver
+            self.qualidade_escolhida = representacoes[0]
+            
+        elif nivel_buffer >= BUFFER_MAX:
+            # Zona de Conforto: Melhor qualidade possível
+            self.qualidade_escolhida = representacoes[-1]
+            
+        else:
+            # Zona de Transição: Mapeia o nível do buffer para um degrau de qualidade
+            # Calcula uma porcentagem de 0.0 a 1.0 de quão cheio o reservatório transicional está
+            progresso = (nivel_buffer - BUFFER_MIN) / (BUFFER_MAX - BUFFER_MIN)
+            
+            # Transforma essa porcentagem no índice da lista de qualidades
+            indice = int(progresso * (len(representacoes) - 1))
+            self.qualidade_escolhida = representacoes[indice]
+
+
+    def executar(self, num_segmentos_simulados=10, nome_arquivo="output/log_baseline.csv", modo_abr="rate_based"):
         """
         Loop principal do player. Fica rodando e baixando os próximos segmentos.
         """
@@ -177,7 +205,19 @@ class ClienteDash:
                 self.registrar_csv(i, can_play, stall, timestamp_iso)
                 
                 # 4. Com a nova banda medida, recalcula a qualidade para o PRÓXIMO loop
-                self.selecionar_qualidade()
+                match modo_abr:
+                    case "rate_based":
+                        self.selecionar_qualidade_rate_based()
+                    case "bba0":
+                        self.selecionar_qualidade_buffer_based()
+                    case "bba3":
+                        if self.buffer.nivel_atual_s < 10.0 and i <= 3:
+                            # FASE DE ARRANQUE (Primeiros segmentos): Confia na estimativa da rede para subir rápido
+                            self.selecionar_qualidade_rate_based()
+                        else:
+                            # FASE DE ESTABILIDADE: O buffer assumiu o controlo e estabiliza a reprodução
+                            self.selecionar_qualidade_buffer_based()
+
             else:
                 print("    Falha crítica ao baixar segmento. Interrompendo streaming.")
                 break
@@ -189,17 +229,24 @@ if __name__ == '__main__':
         "http://137.131.178.229:8081"
     ]
     
-    # Verifica se algum argumento foi passado no terminal
+    # 1. Define os valores padrão caso você rode sem parâmetros
+    nome_teste = "teste_padrao"
+    modo_escolhido = "rate_based"
+    
+    # 2. Lê os argumentos digitados no terminal
     if len(sys.argv) > 1:
-        # Pega a palavra que você digitou e monta o caminho do arquivo
-        nome_base = sys.argv[1]
-        caminho_saida = f"output/{nome_base}.csv"
-    else:
-        # Se não digitou nada, usa o padrão
-        caminho_saida = "output/log_baseline.csv"
+        nome_teste = sys.argv[1]        # Ex: teste_morte_lenta
+    if len(sys.argv) > 2:
+        modo_escolhido = sys.argv[2]    # Ex: buffer_based
+
+    # 3. Monta a nova hierarquia de pastas
+    pasta_saida = f"output/{nome_teste}/{modo_escolhido}"
+    
+    # O arquivo sempre se chamará 'log.csv' dentro da pasta respectiva
+    caminho_saida = f"{pasta_saida}/log.csv"
 
     cliente = ClienteDash(urls_de_bootstrap)
-    cliente.executar(num_segmentos_simulados=60, nome_arquivo=caminho_saida)
+    cliente.executar(num_segmentos_simulados=60, nome_arquivo=caminho_saida, modo_abr=modo_escolhido)
 
     gerador = GeradorGraficos(caminho_saida)
     gerador.gerar_grafico_vazao_qualidade()

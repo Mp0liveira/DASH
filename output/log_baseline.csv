@@ -1,2 +1,0 @@
-segmento,timestamp,server_id,qualidade,bitrate_kbps,vazao_kbps,download_time_s,jitter_network_ms,jitter_ewma_ms,jitter_ms,buffer_level_s,buffer_can_play,rebuffer_event,stall_duration_s,failover_total
-1,2026-06-01T00:10:55.490090+00:00,A,240p,200,922.94,0.22,0.0,0.0,0.0,2.0,0,1,0.22,0

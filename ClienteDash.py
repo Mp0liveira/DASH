@@ -2,6 +2,7 @@ import requests
 import datetime
 import time
 import csv
+import sys
 import os
 from BufferManager import BufferManager
 import pandas as pd
@@ -158,14 +159,14 @@ class ClienteDash:
             else:
                 break
 
-    def executar(self, num_segmentos_simulados=10):
+    def executar(self, num_segmentos_simulados=10, nome_arquivo="output/log_baseline.csv"):
         """
         Loop principal do player. Fica rodando e baixando os próximos segmentos.
         """
         if not self.baixar_manifesto():
             return
 
-        self.inicializar_csv("output/log_baseline.csv")
+        self.inicializar_csv(nome_arquivo)
         duracao_segmento_s = self.manifesto.get("segment_duration_s")
  
         # Forçamos a primeira qualidade a ser a mais baixa por segurança.
@@ -208,5 +209,14 @@ if __name__ == '__main__':
         "http://137.131.178.229:8081"
     ]
     
+    # Verifica se algum argumento foi passado no terminal
+    if len(sys.argv) > 1:
+        # Pega a palavra que você digitou e monta o caminho do arquivo
+        nome_base = sys.argv[1]
+        caminho_saida = f"output/{nome_base}.csv"
+    else:
+        # Se não digitou nada, usa o padrão
+        caminho_saida = "output/log_baseline.csv"
+
     cliente = ClienteDash(urls_de_bootstrap)
-    cliente.executar(num_segmentos_simulados=20)
+    cliente.executar(num_segmentos_simulados=60, nome_arquivo=caminho_saida)

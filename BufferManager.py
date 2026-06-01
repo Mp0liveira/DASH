@@ -1,6 +1,3 @@
-import requests
-import time
-
 class BufferManager:
     def __init__(self):
         self.nivel_atual_s = 0.0

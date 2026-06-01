@@ -20,6 +20,7 @@ class ClienteDash:
         self.jitter_ms = 0.0
         self.download_time_s = 0.0
         self.tamanho_segmento_bits = 0
+        self.fase_arranque_ativa = True
 
 
     def baixar_manifesto(self):
@@ -126,13 +127,13 @@ class ClienteDash:
         return False
 
 
-    def selecionar_qualidade_rate_based(self):
+    def selecionar_qualidade_rate_based(self, margem_seguranca):
         """ Política 1 (Rate-Based) com 20% de margem de segurança """
         representacoes = self.manifesto["representations"]
         self.qualidade_escolhida = representacoes[0] # Fallback (pior qualidade)
 
         for rep in representacoes:
-            vazao_exigida_com_folga = rep["bitrate_kbps"] * 1
+            vazao_exigida_com_folga = rep["bitrate_kbps"] * margem_seguranca
             if self.bandwidth_kbps >= vazao_exigida_com_folga:
                 self.qualidade_escolhida = rep
             else:
@@ -140,34 +141,51 @@ class ClienteDash:
 
 
     def selecionar_qualidade_buffer_based(self):
-        """ Política 2 (Buffer-Based): Ignora a vazão e olha só para a 'gordura' """
-        # Garante que as qualidades estão ordenadas da pior para a melhor
+        """ Política 2 (Buffer-Based) com Histerese (Anti Ping-Pong) e Teto de Banda """
         representacoes = sorted(self.manifesto["representations"], key=lambda k: k['bitrate_kbps'])
-        
         nivel_buffer = self.buffer.nivel_atual_s
         
-        BUFFER_MIN = 10.0 # Segundos (Abaixo disso é pânico)
-        BUFFER_MAX = 30.0 # Segundos (Acima disso é luxo)
+        BUFFER_MIN = 10.0 
+        BUFFER_MAX = 30.0 
         
+        # 1. Calcula o índice ideal matematicamente
         if nivel_buffer <= BUFFER_MIN:
-            # Zona de Pânico: Pior qualidade para sobreviver
-            self.qualidade_escolhida = representacoes[0]
-            
+            novo_indice = 0
         elif nivel_buffer >= BUFFER_MAX:
-            # Zona de Conforto: Melhor qualidade possível
-            self.qualidade_escolhida = representacoes[-1]
-            
+            novo_indice = len(representacoes) - 1
         else:
-            # Zona de Transição: Mapeia o nível do buffer para um degrau de qualidade
-            # Calcula uma porcentagem de 0.0 a 1.0 de quão cheio o reservatório transicional está
             progresso = (nivel_buffer - BUFFER_MIN) / (BUFFER_MAX - BUFFER_MIN)
+            novo_indice = round(progresso * (len(representacoes) - 1))
             
-            # Transforma essa porcentagem no índice da lista de qualidades
-            indice = int(progresso * (len(representacoes) - 1))
-            self.qualidade_escolhida = representacoes[indice]
+        # 2. Histerese (trava de queda)
+        # Só aplicamos a trava se o player já estava tocando alguma coisa antes
+        if self.qualidade_escolhida is not None:
+            # Descobre qual é o índice da qualidade que estava tocando no segmento anterior
+            indice_atual = representacoes.index(self.qualidade_escolhida)
+            
+            # Se o cálculo escolhe um segmento de pior qualidade, comparamos
+            if novo_indice < indice_atual:
+                # O buffer ainda está numa zona super confortável? (nosso caso, olhamos se >= 80%)
+                # Se sim, mantemos a qualidade, mesmo que o cálculo tenha mandado abaixar
+                if nivel_buffer > (BUFFER_MAX * 0.8):
+                    novo_indice = indice_atual
+
+        # 3. Teto de Banda
+        # Quando implementamos o BBA0/BBA2, surgiu um novo problema de oscilação entre as duas melhoers qualidade
+        # O código abaixo faz com que o player prefira a estabilidade (na 2° melhor qualidade) do que a oscilação
+
+        # Multiplicamos a banda medida para permitir uma leve folga (já que temos buffer para queimar)
+        limite_banda = self.bandwidth_kbps * 1.8
+        
+        # Se o buffer pediu uma qualidade que é muito maior que a capacidade da rede, nós cortamos
+        while novo_indice > 0 and representacoes[novo_indice]['bitrate_kbps'] > limite_banda:
+            novo_indice -= 1
+
+        # 4. Aplica a decisão final
+        self.qualidade_escolhida = representacoes[novo_indice]
 
 
-    def executar(self, num_segmentos_simulados=10, nome_arquivo="output/log_baseline.csv", modo_abr="rate_based"):
+    def executar(self, num_segmentos_simulados=10, nome_arquivo="output/log_baseline.csv", modo_abr="rate_based", margem_seguranca=1):
         """
         Loop principal do player. Fica rodando e baixando os próximos segmentos.
         """
@@ -207,15 +225,23 @@ class ClienteDash:
                 # 4. Com a nova banda medida, recalcula a qualidade para o PRÓXIMO loop
                 match modo_abr:
                     case "rate_based":
-                        self.selecionar_qualidade_rate_based()
+                        self.selecionar_qualidade_rate_based(margem_seguranca)
                     case "bba0":
                         self.selecionar_qualidade_buffer_based()
-                    case "bba3":
-                        if self.buffer.nivel_atual_s < 10.0 and i <= 3:
-                            # FASE DE ARRANQUE (Primeiros segmentos): Confia na estimativa da rede para subir rápido
-                            self.selecionar_qualidade_rate_based()
+                    case "bba2":
+
+                        # A política do BBA2 mistura o Rate Based com o BBA0
+                        # O limite define até quando deve-se usar o Rate-Based
+                        LIMITE_CONFORTO_S = 24
+
+                        if self.buffer.nivel_atual_s >= LIMITE_CONFORTO_S:
+                            self.fase_arranque_ativa = False
+
+                        if self.fase_arranque_ativa:
+                            # Fase de Arranque (início): usa Rate Based
+                            self.selecionar_qualidade_rate_based(margem_seguranca)
                         else:
-                            # FASE DE ESTABILIDADE: O buffer assumiu o controlo e estabiliza a reprodução
+                            # Fase de Estabilidade: usa o BBA0
                             self.selecionar_qualidade_buffer_based()
 
             else:
@@ -232,12 +258,15 @@ if __name__ == '__main__':
     # 1. Define os valores padrão caso você rode sem parâmetros
     nome_teste = "teste_padrao"
     modo_escolhido = "rate_based"
+    margem_escolhida = 1
     
     # 2. Lê os argumentos digitados no terminal
     if len(sys.argv) > 1:
         nome_teste = sys.argv[1]        # Ex: teste_morte_lenta
     if len(sys.argv) > 2:
-        modo_escolhido = sys.argv[2]    # Ex: buffer_based
+        modo_escolhido = sys.argv[2]    # Ex: bba0, bba2
+    if len(sys.argv) > 3:
+        margem_escolhida = float(sys.argv[3])  # Ex: 1.2 (20%)
 
     # 3. Monta a nova hierarquia de pastas
     pasta_saida = f"output/{nome_teste}/{modo_escolhido}"
@@ -246,7 +275,7 @@ if __name__ == '__main__':
     caminho_saida = f"{pasta_saida}/log.csv"
 
     cliente = ClienteDash(urls_de_bootstrap)
-    cliente.executar(num_segmentos_simulados=60, nome_arquivo=caminho_saida, modo_abr=modo_escolhido)
+    cliente.executar(num_segmentos_simulados=60, nome_arquivo=caminho_saida, modo_abr=modo_escolhido, margem_seguranca=margem_escolhida)
 
     gerador = GeradorGraficos(caminho_saida)
     gerador.gerar_grafico_vazao_qualidade()

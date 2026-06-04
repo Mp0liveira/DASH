@@ -21,6 +21,8 @@ class ClienteDash:
         self.download_time_s = 0.0
         self.tamanho_segmento_bits = 0
         self.fase_arranque_ativa = True
+        self.total_failovers = 0
+        self.servidores_ordenados = []
 
 
     def baixar_manifesto(self):
@@ -31,8 +33,8 @@ class ClienteDash:
                 response = requests.get(url_manifesto, timeout=3)
                 if response.status_code == 200:
                     self.manifesto = response.json()
-                    servidores = sorted(self.manifesto["servers"], key=lambda k: k['priority'])
-                    self.servidor_ativo = servidores[0]['url']
+                    self.servidores_ordenados = sorted(self.manifesto["servers"], key=lambda k: k['priority'])
+                    self.servidor_ativo = self.servidores_ordenados[0]['url']
                     print(f"    Manifesto carregado. Servidor ativo: {self.servidor_ativo}")
                     return True
             except requests.RequestException:
@@ -90,16 +92,59 @@ class ClienteDash:
                     0 # failover_total
                 ])
 
+    def baixar_com_failover(self, url_path):
+        """
+        Tenta baixar o segmento. Se falhar, busca um servidor alternativo via /health
+        """
+        url_completa = f"{self.servidor_ativo}{url_path}"
+        
+        try:
+            # Pedido normal (timeout curto para não travar o player para sempre se o server morrer)
+            response = requests.get(url_completa, timeout=2)
+            response.raise_for_status() # Lança erro se a resposta não for 200 OK
+            return response
+            
+        except requests.RequestException as e:
+            print(f"    [!] Servidor ativo ({self.servidor_ativo}) caiu ou deu timeout!")
+            print("    [*] Iniciando procedimento de FAILOVER...")
+            
+            # Itera pela lista de servidores do manifesto respeitando a prioridade
+            for servidor in self.servidores_ordenados:
+                url_candidata = servidor['url']
+                
+                # Ignora o servidor que a gente já sabe que está morto
+                if url_candidata == self.servidor_ativo:
+                    continue
+                    
+                print(f"    [*] Testando Health Check em: {url_candidata}/health")
+                try:
+                    # Health check com timeout agressivo de 2 segundos
+                    health_resp = requests.get(f"{url_candidata}/health", timeout=2)
+                    
+                    if health_resp.status_code == 200:
+                        print(f"    [+] Servidor {url_candidata} está VIVO! Migrando...")
+                        self.servidor_ativo = url_candidata
+                        self.total_failovers += 1
+                        
+                        # Agora tenta baixar o vídeo novamente, mas do novo servidor
+                        nova_url = f"{self.servidor_ativo}{url_path}"
+                        return requests.get(nova_url, timeout=3)
+                        
+                except requests.RequestException:
+                    print(f"    [-] Servidor {url_candidata} também está morto.")
+            
+            # Se saiu do loop, significa que testou todos e não achou ninguém
+            print("    [!] ERRO FATAL: Todos os servidores estão indisponíveis.")
+            raise Exception("Apagão de Rede") # Joga um erro fatal para cancelar a medição
+        
 
     def baixar_e_medir_segmento(self, url_path):
         """
         Baixa o segmento para o buffer e retorna o tempo que levou e os bytes recebidos.
         """
-        url_completa = f"{self.servidor_ativo}{url_path}"
-        
         try:
             inicio = time.time()
-            response = requests.get(url_completa)
+            response = self.baixar_com_failover(url_path)
             final = time.time()
 
             if response.status_code == 200:

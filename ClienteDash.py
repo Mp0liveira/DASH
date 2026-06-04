@@ -1,3 +1,14 @@
+# Para rodar: python3 ClienteDash <nome_da_saida> <algoritmo> <margem>
+#
+# <nome_da_saida> pode assumir qualquer valor (pasta do output)
+# <algoritmo> = rate_based/bba0/bba2
+# <margem> é qualquer valor númerico para a margem de segurança do rate_based
+# Por padrão, caso não seja passado nenhum parâmetro, a saída será salva na pasta output/padrão no rate_based sem margem
+# de segurança (margem = 1)
+#
+# A pasta arquivos_teste contém alguns scripts bash usados para simular ambientes de rede
+# Caso queira testar, basta rodar o código em um terminal e rodar o script escolhido em um outro terminal simultâneamente
+
 import requests
 import datetime
 import time
@@ -34,8 +45,8 @@ class ClienteDash:
                 if response.status_code == 200:
                     self.manifesto = response.json()
                     self.servidores_ordenados = sorted(self.manifesto["servers"], key=lambda k: k['priority'])
-                    self.servidor_ativo = self.servidores_ordenados[0]['url']
-                    print(f"    Manifesto carregado. Servidor ativo: {self.servidor_ativo}")
+                    self.servidor_ativo = self.servidores_ordenados[0]
+                    print(f"    Manifesto carregado. Servidor ativo: {self.servidor_ativo['url']}")
                     return True
             except requests.RequestException:
                 print(f"    Falha no servidor {url_base}. Tentando próximo...")
@@ -77,7 +88,7 @@ class ClienteDash:
                 writer.writerow([
                     num_segmento,
                     timestamp_iso,
-                    "A", # server_id (sempre A por enquanto)
+                    self.servidor_ativo["id"], # server_id (sempre A por enquanto)
                     self.qualidade_escolhida["quality"],
                     self.qualidade_escolhida["bitrate_kbps"],
                     round(self.bandwidth_kbps, 2), # Vazão medida
@@ -89,14 +100,14 @@ class ClienteDash:
                     buffer_can_play, # 1 se rodou liso, 0 se travou
                     rebuffer_event,  # 1 se travou, 0 se rodou liso
                     round(stall, 2),
-                    0 # failover_total
+                    self.total_failovers,
                 ])
 
     def baixar_com_failover(self, url_path):
         """
         Tenta baixar o segmento. Se falhar, busca um servidor alternativo via /health
         """
-        url_completa = f"{self.servidor_ativo}{url_path}"
+        url_completa = f"{self.servidor_ativo['url']}{url_path}"
         
         try:
             # Pedido normal (timeout curto para não travar o player para sempre se o server morrer)
@@ -105,15 +116,16 @@ class ClienteDash:
             return response
             
         except requests.RequestException as e:
-            print(f"    [!] Servidor ativo ({self.servidor_ativo}) caiu ou deu timeout!")
+            print(f"    [!] Servidor ativo ({self.servidor_ativo['url']}) caiu ou deu timeout!")
             print("    [*] Iniciando procedimento de FAILOVER...")
             
+            inicio_failover = time.time()
             # Itera pela lista de servidores do manifesto respeitando a prioridade
             for servidor in self.servidores_ordenados:
                 url_candidata = servidor['url']
                 
                 # Ignora o servidor que a gente já sabe que está morto
-                if url_candidata == self.servidor_ativo:
+                if url_candidata == self.servidor_ativo['url']:
                     continue
                     
                 print(f"    [*] Testando Health Check em: {url_candidata}/health")
@@ -123,11 +135,14 @@ class ClienteDash:
                     
                     if health_resp.status_code == 200:
                         print(f"    [+] Servidor {url_candidata} está VIVO! Migrando...")
-                        self.servidor_ativo = url_candidata
+                        self.servidor_ativo = servidor
                         self.total_failovers += 1
                         
                         # Agora tenta baixar o vídeo novamente, mas do novo servidor
-                        nova_url = f"{self.servidor_ativo}{url_path}"
+                        nova_url = f"{self.servidor_ativo['url']}{url_path}"
+                        final_failover = time.time()
+                        tempo_failover = final_failover - inicio_failover
+                        print(f"    [!] Tempo para ocorrer o failover: {tempo_failover:.2f}s")
                         return requests.get(nova_url, timeout=3)
                         
                 except requests.RequestException:

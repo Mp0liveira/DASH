@@ -88,14 +88,14 @@ class ClienteDash:
                 writer.writerow([
                     num_segmento,
                     timestamp_iso,
-                    self.servidor_ativo["id"], # server_id (sempre A por enquanto)
+                    self.servidor_ativo["id"], # server_id
                     self.qualidade_escolhida["quality"],
                     self.qualidade_escolhida["bitrate_kbps"],
                     round(self.bandwidth_kbps, 2), # Vazão medida
                     round(self.download_time_s, 2),
                     round(self.jitter_ms, 2), # jitter_network_ms
                     round(self.jitter_ms, 2), # jitter_ewma_ms (usando o mesmo por enquanto)
-                    round(self.jitter_ms, 2), # jitter_ms (seu campo extra)
+                    round(self.jitter_ms, 2), # jitter_ms (campo temporário)
                     round(self.buffer.nivel_atual_s, 2), # Nível do buffer
                     buffer_can_play, # 1 se rodou liso, 0 se travou
                     rebuffer_event,  # 1 se travou, 0 se rodou liso
@@ -303,6 +303,21 @@ class ClienteDash:
                         else:
                             # Fase de Estabilidade: usa o BBA0
                             self.selecionar_qualidade_buffer_based()
+
+                LIMITE_MAX_BUFFER = 30.0 
+                
+                if self.buffer.nivel_atual_s > LIMITE_MAX_BUFFER:
+                    # Calcula quanto tempo o player deve esperar para "gastar" o excesso
+                    excesso = self.buffer.nivel_atual_s - LIMITE_MAX_BUFFER
+                    
+                    # O wait máximo é a duração de um segmento, para não dormir demais
+                    wait = min(excesso, duracao_segmento_s)
+                    
+                    print(f"    [Playback] Buffer cheio! Simulando o usuário assistindo... (Dormindo {wait:.2f}s)")
+                    time.sleep(wait)
+                    
+                    # Desconta do buffer o tempo que o usuário passou assistindo
+                    self.buffer.nivel_atual_s -= wait
 
             else:
                 print("    Falha crítica ao baixar segmento. Interrompendo streaming.")

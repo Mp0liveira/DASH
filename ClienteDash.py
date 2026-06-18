@@ -1,8 +1,8 @@
 # Para rodar: python3 ClienteDash <nome_da_saida> <algoritmo> <margem>
 #
 # <nome_da_saida> pode assumir qualquer valor (pasta do output)
-# <algoritmo> = rate_based/bba0/bba2
-# <margem> é qualquer valor númerico para a margem de segurança do rate_based
+# <algoritmo> = rate_based/bba0/bba2/heuristica
+# <margem> é qualquer valor númerico para a margem de segurança do rate_based e heuristica
 # Por padrão, caso não seja passado nenhum parâmetro, a saída será salva na pasta output/padrão no rate_based sem margem
 # de segurança (margem = 1)
 #
@@ -34,6 +34,7 @@ class ClienteDash:
         self.fase_arranque_ativa = True
         self.total_failovers = 0
         self.servidores_ordenados = []
+        self.jitter_ewma_ms = 0.0
 
 
     def baixar_manifesto(self):
@@ -94,7 +95,7 @@ class ClienteDash:
                     round(self.bandwidth_kbps, 2), # Vazão medida
                     round(self.download_time_s, 2),
                     round(self.jitter_ms, 2), # jitter_network_ms
-                    round(self.jitter_ms, 2), # jitter_ewma_ms (usando o mesmo por enquanto)
+                    round(self.jitter_ewma_ms, 2), # jitter_ewma_ms (agora exportando a média móvel correta)
                     round(self.jitter_ms, 2), # jitter_ms (campo temporário)
                     round(self.buffer.nivel_atual_s, 2), # Nível do buffer
                     buffer_can_play, # 1 se rodou liso, 0 se travou
@@ -174,8 +175,16 @@ class ClienteDash:
                     # Jitter é a diferença de tempo entre cada pactore
                     variacao_s = abs(latencia_atual_s - self.latencia_anterior_s)
                     self.jitter_ms = variacao_s * 1000
+                    
+                    # Cálculo do Jitter EWMA
+                    alpha = 0.125 # Fator de peso estatístico padrão (similar ao usado na estimação de RTT do TCP)
+                    if self.jitter_ewma_ms == 0.0:
+                        self.jitter_ewma_ms = self.jitter_ms # Inicializa no primeiro cálculo
+                    else:
+                        self.jitter_ewma_ms = (alpha * self.jitter_ms) + ((1 - alpha) * self.jitter_ewma_ms)
                 else:
-                    self.jitter_ms = 0.0 # Seria o caso do 1° pacote, não tem jitter pq não tem com o que comparar
+                    self.jitter_ms = 0.0 
+                    self.jitter_ewma_ms = 0.0
 
                 self.latencia_anterior_s = latencia_atual_s
 
@@ -245,6 +254,33 @@ class ClienteDash:
         self.qualidade_escolhida = representacoes[novo_indice]
 
 
+    def selecionar_qualidade_heuristica_jitter(self, margem_seguranca):
+        """ Política 3: Heurística com Penalidade por Jitter EWMA """
+        representacoes = self.manifesto["representations"]
+        self.qualidade_escolhida = representacoes[0]
+        
+        # Heurística: Penalizamos a vazão medida proporcionalmente ao Jitter EWMA
+        # Define-se que 500ms de Jitter EWMA representam o cenário crítico (100% de penalidade aplicável)
+        fator_instabilidade = self.jitter_ewma_ms / 500.0
+        
+        # Limitamos a penalidade a no máximo 40% de corte na vazão para evitar degradação excessiva
+        penalidade_maxima = 0.40 
+        fator_penalidade = min(fator_instabilidade, penalidade_maxima)
+        
+        # Calcula a banda efetiva (banda medida descontando o risco da instabilidade)
+        banda_estimada_kbps = self.bandwidth_kbps * (1.0 - fator_penalidade)
+        
+        print(f"    [Heurística] Banda Nominal: {self.bandwidth_kbps:.2f} kbps | Jitter EWMA: {self.jitter_ewma_ms:.2f} ms | Banda Efetiva: {banda_estimada_kbps:.2f} kbps")
+
+        # Seleciona a qualidade usando a banda estimada penalizada
+        for rep in representacoes:
+            vazao_exigida_com_folga = rep["bitrate_kbps"] * margem_seguranca
+            if banda_estimada_kbps >= vazao_exigida_com_folga:
+                self.qualidade_escolhida = rep
+            else:
+                break
+
+
     def executar(self, num_segmentos_simulados=10, nome_arquivo="output/log_baseline.csv", modo_abr="rate_based", margem_seguranca=1):
         """
         Loop principal do player. Fica rodando e baixando os próximos segmentos.
@@ -289,7 +325,6 @@ class ClienteDash:
                     case "bba0":
                         self.selecionar_qualidade_buffer_based()
                     case "bba2":
-
                         # A política do BBA2 mistura o Rate Based com o BBA0
                         # O limite define até quando deve-se usar o Rate-Based
                         LIMITE_CONFORTO_S = 24
@@ -303,6 +338,9 @@ class ClienteDash:
                         else:
                             # Fase de Estabilidade: usa o BBA0
                             self.selecionar_qualidade_buffer_based()
+                    case "heuristica":
+                        # Nova Política 3 que utiliza a média móvel do Jitter
+                        self.selecionar_qualidade_heuristica_jitter(margem_seguranca)
 
                 LIMITE_MAX_BUFFER = 30.0 
                 
@@ -339,7 +377,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         nome_teste = sys.argv[1]        # Ex: teste_morte_lenta
     if len(sys.argv) > 2:
-        modo_escolhido = sys.argv[2]    # Ex: bba0, bba2
+        modo_escolhido = sys.argv[2]    # Ex: bba0, bba2, heuristica
     if len(sys.argv) > 3:
         margem_escolhida = float(sys.argv[3])  # Ex: 1.2 (20%)
 

@@ -111,9 +111,9 @@ class ClienteDash:
         url_completa = f"{self.servidor_ativo['url']}{url_path}"
         
         try:
-            # Pedido normal (timeout curto para não travar o player para sempre se o server morrer)
-            response = requests.get(url_completa, timeout=2)
-            response.raise_for_status() # Lança erro se a resposta não for 200 OK
+            # Pedido normal (adicionado stream=True)
+            response = requests.get(url_completa, timeout=2, stream=True)
+            response.raise_for_status()
             return response
             
         except requests.RequestException as e:
@@ -121,17 +121,14 @@ class ClienteDash:
             print("    [*] Iniciando procedimento de FAILOVER...")
             
             inicio_failover = time.time()
-            # Itera pela lista de servidores do manifesto respeitando a prioridade
             for servidor in self.servidores_ordenados:
                 url_candidata = servidor['url']
                 
-                # Ignora o servidor que a gente já sabe que está morto
                 if url_candidata == self.servidor_ativo['url']:
                     continue
                     
                 print(f"    [*] Testando Health Check em: {url_candidata}/health")
                 try:
-                    # Health check com timeout agressivo de 2 segundos
                     health_resp = requests.get(f"{url_candidata}/health", timeout=2)
                     
                     if health_resp.status_code == 200:
@@ -139,60 +136,83 @@ class ClienteDash:
                         self.servidor_ativo = servidor
                         self.total_failovers += 1
                         
-                        # Agora tenta baixar o vídeo novamente, mas do novo servidor
                         nova_url = f"{self.servidor_ativo['url']}{url_path}"
                         final_failover = time.time()
                         tempo_failover = final_failover - inicio_failover
                         print(f"    [!] Tempo para ocorrer o failover: {tempo_failover:.2f}s")
-                        return requests.get(nova_url, timeout=3)
+                        
+                        # Retornando a nova URL com stream=True
+                        return requests.get(nova_url, timeout=3, stream=True)
                         
                 except requests.RequestException:
                     print(f"    [-] Servidor {url_candidata} também está morto.")
             
-            # Se saiu do loop, significa que testou todos e não achou ninguém
             print("    [!] ERRO FATAL: Todos os servidores estão indisponíveis.")
-            raise Exception("Apagão de Rede") # Joga um erro fatal para cancelar a medição
+            raise Exception("Apagão de Rede")
         
 
     def baixar_e_medir_segmento(self, url_path):
         """
-        Baixa o segmento para o buffer e retorna o tempo que levou e os bytes recebidos.
+        Baixa o segmento e mede o jitter entre os pacotes (chunks) internos.
         """
-        try:
-            inicio = time.time()
-            response = self.baixar_com_failover(url_path)
-            final = time.time()
+        # Define um limite de tentativas igual ao número de servidores para não entrar em loop infinito
+        max_tentativas = len(self.servidores_ordenados) + 1
+        
+        for tentativa in range(max_tentativas):
+            try:
+                inicio = time.time()
+                response = self.baixar_com_failover(url_path)
 
-            if response.status_code == 200:
-                self.download_time_s = final - inicio
-                self.tamanho_segmento_bits = len(response.content) * 8
+                if response.status_code == 200:
+                    tamanho_total_bytes = 0
+                    latencia_anterior_chunk_s = None
+                    soma_jitter_chunks_s = 0.0
+                    num_chunks_medidos = 0
 
-                # A função extrai o TTFB, que é o time to first byte
-                # É quanto tempo demora desde a requisição até o recebimento do 1° byte do pacte
-                latencia_atual_s = response.elapsed.total_seconds()
+                    tempo_ultimo_chunk = time.time()
 
-                if self.latencia_anterior_s is not None:
-                    # Jitter é a diferença de tempo entre cada pactore
-                    variacao_s = abs(latencia_atual_s - self.latencia_anterior_s)
-                    self.jitter_ms = variacao_s * 1000
+                    # O download real ocorre aqui. Se a conexão cair, vai gerar um ReadTimeout!
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            agora = time.time()
+                            tamanho_total_bytes += len(chunk)
+                            
+                            latencia_chunk_s = agora - tempo_ultimo_chunk
+                            
+                            if latencia_anterior_chunk_s is not None:
+                                variacao_s = abs(latencia_chunk_s - latencia_anterior_chunk_s)
+                                soma_jitter_chunks_s += variacao_s
+                                num_chunks_medidos += 1
+                                
+                            latencia_anterior_chunk_s = latencia_chunk_s
+                            tempo_ultimo_chunk = agora
+
+                    final = time.time()
                     
-                    # Cálculo do Jitter EWMA
-                    alpha = 0.125 # Fator de peso estatístico padrão (similar ao usado na estimação de RTT do TCP)
+                    self.download_time_s = final - inicio
+                    self.tamanho_segmento_bits = tamanho_total_bytes * 8
+
+                    if num_chunks_medidos > 0:
+                        self.jitter_ms = (soma_jitter_chunks_s / num_chunks_medidos) * 1000
+                    else:
+                        self.jitter_ms = 0.0 
+
+                    alpha = 0.125
                     if self.jitter_ewma_ms == 0.0:
-                        self.jitter_ewma_ms = self.jitter_ms # Inicializa no primeiro cálculo
+                        self.jitter_ewma_ms = self.jitter_ms 
                     else:
                         self.jitter_ewma_ms = (alpha * self.jitter_ms) + ((1 - alpha) * self.jitter_ewma_ms)
-                else:
-                    self.jitter_ms = 0.0 
-                    self.jitter_ewma_ms = 0.0
 
-                self.latencia_anterior_s = latencia_atual_s
+                    # Se chegou até aqui, o download foi um sucesso. Saímos da função.
+                    return True
 
-                return True
-
-        except requests.RequestException as e:
-            print(f"    [Erro de Rede] Falha ao baixar o segmento: {e}")
-            
+            except requests.RequestException as e:
+                print(f"    [!] Conexão interrompida durante a leitura dos pacotes: {e}")
+                print("    [*] Repetindo tentativa do segmento para acionar failover...")
+                # O loop 'for' vai rodar novamente. Na próxima volta, o requests.get vai falhar
+                # logo de cara, ativando sua lógica nativa de failover perfeitamente.
+                
+        print("    [Erro de Rede] Falha fatal ao baixar o segmento após esgotar tentativas.")
         return False
 
 

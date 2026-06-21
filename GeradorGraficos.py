@@ -37,7 +37,7 @@ class GeradorGraficos:
             print(f"    [!] Erro ao gerar gráfico de vazão: {e}")
 
     def gerar_grafico_buffer(self):
-        print("[*] Gerando gráfico unificado: Vazão, Qualidade e Buffer...")
+        print("[*] Gerando gráfico unificado: Vazão, Qualidade e Buffer (com trocas de servidor)...")
         try:
             df = pd.read_csv(self.arquivo_csv)
             
@@ -57,6 +57,24 @@ class GeradorGraficos:
             if not travamentos.empty:
                 ax1.scatter(travamentos['segmento'], travamentos['buffer_level_s'], 
                             color='red', s=150, zorder=5, marker='X', label='Travamento (Stall)')
+
+            # --- DETECÇÃO E PLOTAGEM DA TROCA DE SERVIDORES ---
+            if 'server_id' in df.columns and len(df) > 1:
+                # Identifica onde o server_id mudou em relação ao segmento anterior
+                df['trocou_servidor'] = df['server_id'] != df['server_id'].shift()
+                # O primeiro registro sempre será True no shift, então forçamos para False
+                df.loc[df.index[0], 'trocou_servidor'] = False
+                
+                # Filtra apenas as linhas onde houve a troca
+                linhas_troca = df[df['trocou_servidor']]
+                
+                print_label = True
+                for _, row in linhas_troca.iterrows():
+                    # O label só é definido na primeira linha vertical para não duplicar na legenda
+                    label_vlinha = 'Troca de Servidor' if print_label else ""
+                    ax1.axvline(x=row['segmento'], color='purple', linestyle='--', linewidth=1.8, 
+                                alpha=0.8, zorder=4, label=label_vlinha)
+                    print_label = False
 
             # --- EIXO Y DA DIREITA (TAXAS EM KBPS) ---
             ax2 = ax1.twinx()  # Cria o segundo eixo Y compartilhando o mesmo eixo X

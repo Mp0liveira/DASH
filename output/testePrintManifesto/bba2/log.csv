@@ -1,0 +1,4 @@
+segmento,timestamp,server_id,qualidade,bitrate_kbps,vazao_kbps,download_time_s,jitter_network_ms,jitter_ewma_ms,jitter_ms,buffer_level_s,buffer_can_play,rebuffer_event,stall_duration_s,failover_total
+1,2026-06-21T17:51:31.565276+00:00,A,240p,200,1186.77,0.17,19.84,19.84,19.84,2.0,0,1,0.17,0
+2,2026-06-21T17:51:32.214847+00:00,A,720p,900,1386.07,0.65,25.84,20.59,25.84,3.35,1,0,0.0,0
+3,2026-06-21T17:51:33.156400+00:00,A,1080p,1200,1274.85,0.94,24.58,21.09,24.58,4.41,1,0,0.0,0

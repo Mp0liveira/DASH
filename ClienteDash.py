@@ -9,6 +9,7 @@
 # A pasta arquivos_teste contém alguns scripts bash usados para simular ambientes de rede
 # Caso queira testar, basta rodar o código em um terminal e rodar o script escolhido em um outro terminal simultâneamente
 
+import json
 import requests
 import datetime
 import time
@@ -45,6 +46,14 @@ class ClienteDash:
                 response = requests.get(url_manifesto, timeout=3)
                 if response.status_code == 200:
                     self.manifesto = response.json()
+                    
+                    # === INÍCIO DO PRINT DO MANIFESTO ===
+                    print("\n--- Conteúdo do Manifesto ---")
+                    # O indent=4 deixa o JSON formatado com quebras de linha e espaçamentos
+                    print(json.dumps(self.manifesto, indent=4, ensure_ascii=False))
+                    print("-----------------------------\n")
+                    # === FIM DO PRINT DO MANIFESTO ===
+                    
                     self.servidores_ordenados = sorted(self.manifesto["servers"], key=lambda k: k['priority'])
                     self.servidor_ativo = self.servidores_ordenados[0]
                     print(f"    Manifesto carregado. Servidor ativo: {self.servidor_ativo['url']}")

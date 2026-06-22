@@ -80,7 +80,6 @@ class ClienteDash:
                 "download_time_s",
                 "jitter_network_ms",
                 "jitter_ewma_ms",
-                "jitter_ms", # Campo temporário só pra apresentar a 1° entrega
                 "buffer_level_s",
                 "buffer_can_play",
                 "rebuffer_event",
@@ -105,7 +104,6 @@ class ClienteDash:
                     round(self.download_time_s, 2),
                     round(self.jitter_ms, 2), # jitter_network_ms
                     round(self.jitter_ewma_ms, 2), # jitter_ewma_ms (agora exportando a média móvel correta)
-                    round(self.jitter_ms, 2), # jitter_ms (campo temporário)
                     round(self.buffer.nivel_atual_s, 2), # Nível do buffer
                     buffer_can_play, # 1 se rodou liso, 0 se travou
                     rebuffer_event,  # 1 se travou, 0 se rodou liso
@@ -164,12 +162,10 @@ class ClienteDash:
         """
         Baixa o segmento e mede o jitter entre os pacotes (chunks) internos.
         """
-        # Define um limite de tentativas igual ao número de servidores para não entrar em loop infinito
-        max_tentativas = len(self.servidores_ordenados) + 1
+        inicio = time.time()
         
-        for tentativa in range(max_tentativas):
+        while True:
             try:
-                inicio = time.time()
                 response = self.baixar_com_failover(url_path)
 
                 if response.status_code == 200:
@@ -215,14 +211,10 @@ class ClienteDash:
                     # Se chegou até aqui, o download foi um sucesso. Saímos da função.
                     return True
 
-            except requests.RequestException as e:
+            except Exception as e:
                 print(f"    [!] Conexão interrompida durante a leitura dos pacotes: {e}")
                 print("    [*] Repetindo tentativa do segmento para acionar failover...")
-                # O loop 'for' vai rodar novamente. Na próxima volta, o requests.get vai falhar
-                # logo de cara, ativando sua lógica nativa de failover perfeitamente.
-                
-        print("    [Erro de Rede] Falha fatal ao baixar o segmento após esgotar tentativas.")
-        return False
+                # Fica preso no while até conseguir baixar o segmento de algum dos servidores
 
 
     def selecionar_qualidade_rate_based(self, margem_seguranca):

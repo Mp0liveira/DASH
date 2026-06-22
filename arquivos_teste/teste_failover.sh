@@ -11,4 +11,4 @@ sudo iptables -A OUTPUT -p tcp -d 137.131.178.229 --dport 8081 -j DROP
 sleep 20
 
 echo "Limpando regras..."
-sudo iptables -D OUTPUT -p tcp -d 137.131.178.229 --dport 8080 -j DROP
+sudo iptables -D OUTPUT -p tcp -d 137.131.178.229 --dport 8081 -j DROP

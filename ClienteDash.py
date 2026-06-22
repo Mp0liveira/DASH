@@ -412,5 +412,5 @@ if __name__ == '__main__':
     cliente.executar(num_segmentos_simulados=60, nome_arquivo=caminho_saida, modo_abr=modo_escolhido, margem_seguranca=margem_escolhida)
 
     gerador = GeradorGraficos(caminho_saida)
-    gerador.gerar_grafico_vazao_qualidade()
-    gerador.gerar_grafico_buffer()
+    gerador.gerar_grafico_padrao()
+    gerador.gerar_grafico_com_jitter()

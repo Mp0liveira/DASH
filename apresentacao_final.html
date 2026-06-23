@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Apresentação Final TR2 — Streaming Adaptativo (DASH)</title>
+<style>
+  :root{
+    --bg:#0f1620; --panel:#16202c; --accent:#4fa3ff; --accent2:#ffb454;
+    --text:#eef3f8; --muted:#9fb1c2; --good:#5fd38d; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:"Segoe UI", Roboto, Arial, sans-serif; background:var(--bg); color:var(--text);
+    height:100vh; overflow:hidden; display:flex; flex-direction:column;
+  }
+  .deck{ flex:1; min-height:0; display:flex; flex-direction:column; }
+  .slide{
+    display:none; flex:1; min-height:0; padding:48px 64px; overflow-y:auto;
+  }
+  .slide.active{ display:flex; flex-direction:column; }
+  .slide h1{ font-size:2.1em; margin:0 0 6px; color:var(--accent); }
+  .slide h2{ font-size:1.3em; margin:0 0 20px; color:var(--muted); font-weight:400; }
+  .slide h3{ color:var(--accent2); margin-top:0; }
+  .tag{
+    display:inline-block; background:var(--panel); border:1px solid #2a3a4d; color:var(--accent2);
+    padding:4px 12px; border-radius:14px; font-size:0.8em; margin-bottom:14px;
+  }
+  .content{ display:flex; gap:36px; flex:1; align-items:flex-start; flex-wrap:wrap; }
+  .col{ flex:1; min-width:280px; }
+  ul{ line-height:1.6; }
+  .imgbox{ flex:1.3; min-width:320px; text-align:center; }
+  .imgbox img{ max-width:100%; max-height:55vh; border:1px solid #2a3a4d; border-radius:8px; background:#fff; }
+  .imgbox .cap{ color:var(--muted); font-size:0.82em; margin-top:8px; font-family:monospace; }
+  .formula{
+    background:var(--panel); border-left:4px solid var(--accent); padding:14px 18px; border-radius:6px;
+    font-family:monospace; font-size:1.05em; margin:14px 0; white-space:pre-wrap;
+  }
+  .pill-ok{ color:var(--good); font-weight:bold; }
+  .pill-bad{ color:var(--bad); font-weight:bold; }
+  table{ border-collapse:collapse; width:100%; margin:14px 0; font-size:0.92em; }
+  th,td{ border:1px solid #2a3a4d; padding:8px 10px; text-align:left; }
+  th{ background:var(--panel); color:var(--accent2); }
+  details{
+    margin-top:auto; background:var(--panel); border:1px solid #2a3a4d; border-radius:8px;
+    padding:12px 16px; font-size:0.95em; line-height:1.55;
+  }
+  details summary{ cursor:pointer; color:var(--accent); font-weight:bold; }
+  details .speaker{ color:var(--accent2); font-weight:bold; }
+  .bar{
+    display:flex; align-items:center; justify-content:space-between; padding:10px 24px;
+    background:var(--panel); border-top:1px solid #2a3a4d; font-size:0.9em;
+  }
+  .bar button{
+    background:var(--accent); border:none; color:#06121f; padding:8px 18px; border-radius:6px;
+    cursor:pointer; font-weight:bold;
+  }
+  .bar button:disabled{ opacity:0.35; cursor:default; }
+  .muted{ color:var(--muted); }
+  code{ background:#0a1119; padding:1px 6px; border-radius:4px; color:#9fdcff; }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+  <!-- 1 -->
+  <section class="slide">
+    <span class="tag">Capa</span>
+    <h1>Streaming Adaptativo com Controle de Banda</h1>
+    <h2>Adaptive Bitrate (ABR) sobre HTTP — Cliente DASH com failover automático</h2>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>Disciplina: Teleinformática e Redes 2 (TR2) — 2026/1</li>
+          <li>Grupo: <em>[Integrante 1] · [Integrante 2] · [Integrante 3]</em></li>
+          <li>Apresentação Final — Entrega das 3 políticas ABR + failover + análise Wireshark</li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 1:</span> "Bom dia/tarde. Somos o grupo [X] e vamos apresentar o projeto final de TR2: um cliente DASH adaptativo em Python, com três políticas de ABR, failover automático entre dois servidores e análise de tráfego com Wireshark. A apresentação tem uns 20 minutos de slides e demos ao vivo, e vamos dividir em três partes entre nós três."</p>
+    </details>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide">
+    <span class="tag">Integrante 1 · Contextualização</span>
+    <h1>Por que ABR importa</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>Netflix/YouTube/Prime não enviam vídeo continuamente: enviam <strong>segmentos de poucos segundos via HTTP/TCP</strong></li>
+          <li>O cliente decide a qualidade de <strong>cada segmento</strong> com base no que observa da rede</li>
+          <li>Esse projeto implementa esse mecanismo do zero: medição de vazão, gestão de buffer, decisão ABR e failover</li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 1:</span> "O ponto de partida é entender que streaming adaptativo não é 'uma conexão só rodando'. É uma sequência de downloads HTTP curtos, e a cada um deles o cliente decide de novo qual qualidade pedir. Isso obriga a dominar várias camadas vistas na disciplina: HTTP em chunked, TCP, medição de vazão na aplicação e políticas de decisão."</p>
+    </details>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide">
+    <span class="tag">Integrante 1 · Arquitetura</span>
+    <h1>Arquitetura do sistema</h1>
+    <div class="content">
+      <div class="col">
+        <table>
+          <tr><th>Componente</th><th>Quem fez</th><th>Papel</th></tr>
+          <tr><td>Servidor A (principal)</td><td>Infraestrutura (professor)</td><td>Manifest + segmentos + rate limit + jitter + /health</td></tr>
+          <tr><td>Servidor B (fallback)</td><td>Infraestrutura (professor)</td><td>Idêntico ao A, assume quando A falha</td></tr>
+          <tr><td>Cliente (<code>ClienteDash.py</code>)</td><td><strong>Nosso grupo</strong></td><td>Manifest, vazão, buffer, ABR, failover, CSV</td></tr>
+        </table>
+        <ul>
+          <li><code>BufferManager.py</code> — estimativa de continuous play</li>
+          <li><code>GeradorGraficos.py</code> — gráficos a partir do CSV</li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 1:</span> "Os dois servidores são fornecidos como infraestrutura — não implementamos servidor. O que construímos é inteiramente o cliente: três arquivos Python, <code>ClienteDash</code> orquestrando tudo, <code>BufferManager</code> cuidando só da matemática do buffer, e <code>GeradorGraficos</code> gerando os gráficos a partir do CSV que produzimos a cada execução."</p>
+    </details>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide">
+    <span class="tag">Integrante 1 · Manifest</span>
+    <h1>Manifest v2.0</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>JSON baixado de <code>/manifest</code> na inicialização</li>
+          <li>Lista os <strong>servidores disponíveis com prioridade</strong> (usado no failover)</li>
+          <li>Lista as <strong>representações</strong> (qualidade, bitrate, tamanho do segmento)</li>
+          <li>Todas as decisões de ABR e failover partem do manifest — nada é hardcoded</li>
+        </ul>
+      </div>
+      <div class="col formula">{
+  "servers": [
+    {"id": "A", "url": "...", "priority": 1},
+    {"id": "B", "url": "...", "priority": 2}
+  ],
+  "representations": [
+    {"quality": "240p", "bitrate_kbps": 200, "url_path": "..."},
+    ...
+  ],
+  "segment_duration_s": 4
+}</div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 1:</span> "No <code>baixar_manifesto()</code>, ordenamos os servidores por prioridade — o de prioridade 1 vira o servidor ativo. As representações vêm na ordem que o servidor manda; usamos exatamente os valores de bitrate do manifest, nunca um valor fixo no código, porque o enunciado pede que toda decisão venha do manifest."</p>
+    </details>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide">
+    <span class="tag">Integrante 1 · Política 1</span>
+    <h1>Baseline: Rate-Based puro</h1>
+    <div class="content">
+      <div class="col">
+        <h3>Lógica</h3>
+        <ul>
+          <li>Mede vazão do <strong>último segmento</strong>: bytes recebidos / tempo decorrido</li>
+          <li>Escolhe a <strong>maior qualidade</strong> cujo bitrate ≤ vazão medida × margem de segurança</li>
+          <li>Sem suavização, sem histórico — decide só com o número mais recente</li>
+        </ul>
+      </div>
+      <div class="col formula">para cada representação (da pior pra melhor):
+  se vazão_medida >= bitrate * margem:
+      escolhida = representação
+  senão:
+      para</div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 1:</span> "A política 1 é a mais simples possível: pega a vazão do segmento que acabou de baixar e escolhe a maior qualidade que essa vazão sustenta, com uma margem de segurança. O ponto crítico — que vamos provar nos próprios dados — é que ela usa só o último segmento, sem médias. Isso é proposital: o enunciado pede pra identificar as deficiências disso depois."</p>
+    </details>
+  </section>
+
+  <!-- 6 -->
+  <section class="slide">
+    <span class="tag">Integrante 1 · Buffer</span>
+    <h1>BufferManager — continuous play</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>A cada segmento: <code>buffer += duração_do_segmento</code></li>
+          <li>Durante o download: <code>buffer -= tempo_real_de_download</code></li>
+          <li>Se o buffer não cobre o tempo de download → <strong class="pill-bad">stall</strong> (rebuffering)</li>
+          <li>Campo <code>buffer_can_play</code> no CSV: 1 se rodou liso, 0 se travou</li>
+        </ul>
+      </div>
+      <div class="col">
+        <p class="muted">Exemplo real (cenário padrão, baseline):</p>
+        <table>
+          <tr><th>Seg.</th><th>buffer antes</th><th>download</th><th>resultado</th></tr>
+          <tr><td>1</td><td>0.0s</td><td>0.38s</td><td class="pill-bad">stall 0.38s (buffer_can_play=0)</td></tr>
+          <tr><td>2</td><td>3.47s (após repor)</td><td>0.53s</td><td class="pill-ok">liso</td></tr>
+        </table>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 1:</span> "O primeiro segmento sempre trava um pouco, porque o buffer começa em zero — não tem como evitar isso sem pré-carregar. Do segundo segmento em diante, como o buffer já tem alguns segundos guardados, o download corre por baixo do buffer sem o usuário perceber. Isso está documentado em todas as nossas execuções: <code>rebuffer_event</code> só aparece no segmento 1."</p>
+    </details>
+  </section>
+
+  <!-- 7 -->
+  <section class="slide">
+    <span class="tag">Integrante 1 · Resultados</span>
+    <h1>Baseline — resultado e deficiência observada</h1>
+    <div class="content">
+      <div class="imgbox">
+        <img src="output/padrao/rate_based/log_grafico_padrao.png" alt="Gráfico baseline">
+        <div class="cap">output/padrao/rate_based/log_grafico_padrao.png</div>
+      </div>
+      <div class="col">
+        <ul>
+          <li>Sobe rápido para 720p e fica ali a maior parte da sessão, mas nos últimos segmentos <strong>oscila entre 360p/480p/720p</strong> mesmo em rede estável</li>
+          <li>9 trocas de qualidade em 60 segmentos — sem nenhuma queda real de banda forçada</li>
+          <li>Deficiência confirmada nos dados: sem média/histórico, qualquer flutuação pequena na última medição já muda a decisão</li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 1:</span> "Nesse gráfico de uma sessão real, o baseline sobe rápido para 720p, mas reparem que nos últimos segmentos ele começa a oscilar entre 360p, 480p e 720p — e isso sem nenhuma limitação de banda real aplicada, só flutuação natural da medição. Isso prova exatamente a deficiência que o roteiro pede pra identificar: como ele decide só pela última amostra, sem suavização, qualquer ruído pequeno já derruba a qualidade escolhida. É esse comportamento que as Políticas 2 e 3 tentam corrigir."</p>
+    </details>
+  </section>
+
+  <!-- 8 -->
+  <section class="slide">
+    <span class="tag">Integrante 2 · Política 2</span>
+    <h1>Política 2: Buffer-Based + histerese + teto de banda</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>Decide pela <strong>quantidade de buffer</strong> acumulado, não pela vazão instantânea</li>
+          <li><strong>Histerese:</strong> só baixa de qualidade se o buffer não estiver muito confortável (evita ping-pong)</li>
+          <li><strong>Teto de banda:</strong> nunca escolhe uma qualidade muito acima da vazão real medida, mesmo com buffer cheio</li>
+          <li>Variante <code>bba2</code>: usa Rate-Based no arranque (buffer baixo) e Buffer-Based depois de estabilizar (≥24s de buffer)</li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 2:</span> "A política 2 ataca diretamente a fragilidade do baseline: em vez de confiar ciegamente na última medição de vazão, ela olha o nível do buffer. Buffer alto e estável → pode subir qualidade. Mas colocamos duas salvaguardas: histerese, pra não ficar subindo e descendo a cada segmento, e um teto de banda, pra nunca pedir uma qualidade muito acima do que a rede de fato sustenta — mesmo que o buffer esteja cheio."</p>
+    </details>
+  </section>
+
+  <!-- 9 -->
+  <section class="slide">
+    <span class="tag">Integrante 2 · Resultados</span>
+    <h1>Política 2 — comparação com o baseline</h1>
+    <div class="content">
+      <div class="imgbox">
+        <img src="output/padrao/bba2/log_grafico_padrao.png" alt="Gráfico BBA2">
+        <div class="cap">output/padrao/bba2/log_grafico_padrao.png</div>
+      </div>
+      <div class="col">
+        <table>
+          <tr><th>Política</th><th>Transições de qualidade (60 seg.)</th></tr>
+          <tr><td>Baseline (rate_based)</td><td>2</td></tr>
+          <tr><td>BBA2 (híbrida)</td><td>9</td></tr>
+        </table>
+        <p class="muted">Números do cenário "padrão" (banda alta e estável) — <strong>buscar os números do cenário com variação de banda da sessão real para o contraste mais forte.</strong></p>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 2:</span> "Atenção honesta aqui: nesse cenário específico de banda alta e estável, o baseline na verdade ficou mais estável que a BBA2 — porque não havia nenhum desafio real pra ele errar. A vantagem da política 2 aparece em cenário de banda variável, que é onde o baseline oscila e a BBA2 segura a qualidade graças à histerese. <strong>[Aqui é o ponto de trazer o gráfico do cenário de oscilação/queda de banda gerado no dia, com os números reais de rebuffer e oscilação]</strong>."</p>
+    </details>
+  </section>
+
+  <!-- 10 -->
+  <section class="slide">
+    <span class="tag">Integrante 2 · Failover</span>
+    <h1>Failover automático entre servidores</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>Cada download tem timeout curto (2s); se falhar, dispara <code>baixar_com_failover</code></li>
+          <li>Percorre os servidores do manifest por prioridade, faz <code>GET /health</code> em cada um</li>
+          <li>Primeiro que responder 200 OK é promovido a servidor ativo, <code>failover_total</code> é incrementado</li>
+          <li>O segmento é refeito no novo servidor — sem reiniciar o player</li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 2:</span> "Quando o servidor A para de responder, o cliente não desiste: ele testa o endpoint <code>/health</code> dos outros servidores do manifest, na ordem de prioridade, e troca para o primeiro que estiver vivo. O código está em <code>baixar_com_failover</code>, no <code>ClienteDash.py</code>. O evento fica registrado no CSV pela mudança do campo <code>server_id</code> e pelo contador <code>failover_total</code>."</p>
+    </details>
+  </section>
+
+  <!-- 11 -->
+  <section class="slide">
+    <span class="tag">Integrante 2 · Demonstração real</span>
+    <h1>Failover — dados de uma execução real</h1>
+    <div class="content">
+      <div class="imgbox">
+        <img src="output/teste_failover/bba2/log_grafico_padrao.png" alt="Gráfico failover">
+        <div class="cap">output/teste_failover/bba2/log_grafico_padrao.png (linha tracejada = troca de servidor)</div>
+      </div>
+      <div class="col">
+        <table>
+          <tr><th>Segmento</th><th>server_id</th><th>buffer_level_s</th><th>download_time_s</th></tr>
+          <tr><td>26 (antes)</td><td>A</td><td>29.68s</td><td>1.01s</td></tr>
+          <tr><td>27 (durante)</td><td><strong>srv-B</strong></td><td>25.47s</td><td><strong>6.21s</strong></td></tr>
+          <tr><td>28 (depois)</td><td>srv-B</td><td>27.15s</td><td>0.32s</td></tr>
+        </table>
+        <p>Custo do failover: <strong>~5,2s extra</strong> de download. Buffer tinha <strong>~30s</strong> → absorveu sem travar (<span class="pill-ok">buffer_can_play=1</span> durante toda a troca).</p>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 2:</span> "Esses números são de uma execução real nossa, derrubando o servidor A com <code>iptables</code> enquanto o cliente rodava. O segmento 27 demorou 6,21s em vez do ~1s normal — esse tempo extra é exatamente o custo do timeout + health check + nova requisição. Mas como o buffer estava em quase 30 segundos no momento da queda, ele absorveu a demora inteira sem nenhum <code>rebuffer_event</code>. Reparem também que, logo após a troca, a qualidade despenca pra 240p — porque a vazão medida naquele segmento ficou artificialmente baixa (tamanho do segmento dividido pelos 6,21s do failover), então o ABR reage como se a rede tivesse caído. Em 1 ou 2 segmentos ele já recupera, porque a vazão real do servidor B é boa."</p>
+    </details>
+  </section>
+
+  <!-- 11b -->
+  <section class="slide">
+    <span class="tag">Integrante 2 · Comparação</span>
+    <h1>Failover — o baseline também recupera, mas mais lento</h1>
+    <div class="content">
+      <div class="imgbox">
+        <img src="output/teste_failover/rate_based/log_grafico_padrao.png" alt="Gráfico failover baseline">
+        <div class="cap">output/teste_failover/rate_based/log_grafico_padrao.png (2 trocas de servidor nessa execução)</div>
+      </div>
+      <div class="col">
+        <table>
+          <tr><th>Evento</th><th>buffer_level_s</th><th>download_time_s</th></tr>
+          <tr><td>Seg. 29 (antes, A)</td><td>31.28s</td><td>0.73s</td></tr>
+          <tr><td>Seg. 30 (failover → srv-B)</td><td>28.74s</td><td><strong>3.26s</strong></td></tr>
+          <tr><td>Seg. 39 (antes, srv-B)</td><td>31.24s</td><td>0.76s</td></tr>
+          <tr><td>Seg. 40 (failover → A)</td><td>26.94s</td><td><strong>5.06s</strong></td></tr>
+        </table>
+        <p>Os dois failovers foram absorvidos pelo buffer (~30s) sem <code>rebuffer_event</code>. Mas a qualidade despenca pra 240p no segmento seguinte ao 1º failover e só volta a 480p no segmento 33 — ainda estava em 480p quando o 2º failover acontece no segmento 40. <strong>BBA2 e a heurística recuperaram em 1–2 segmentos; o baseline levou ~9 segmentos sem nunca voltar a 720p.</strong></p>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 2:</span> "Esse teste teve dois failovers seguidos: A caiu, foi pro B, depois B caiu e voltou pro A — é o nosso script <code>teste_failover.sh</code>, que derruba os dois servidores em sequência. O buffer absorveu as duas trocas sem travar, igual vimos na BBA2. A diferença interessante é a recuperação da qualidade: como o baseline não tem buffer nem histerese, ele trata a vazão inflada pelo failover como se fosse uma queda real de rede, e demora bem mais pra subir de qualidade de novo — comparem com a BBA2 e a heurística, que voltaram ao topo em 1 ou 2 segmentos. É uma evidência a mais da deficiência do baseline em cenários com instabilidade."</p>
+    </details>
+  </section>
+
+  <!-- 12 -->
+  <section class="slide">
+    <span class="tag">Integrante 3 · Política 3</span>
+    <h1>Política 3: heurística com penalidade por Jitter EWMA</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>Jitter = variação no intervalo entre chunks consecutivos dentro do segmento</li>
+          <li>EWMA (α=0,125, igual ao TCP RTO) suaviza o jitter segmento a segmento</li>
+          <li>Penaliza a vazão medida proporcionalmente ao jitter EWMA, até no máximo 40%</li>
+          <li>Usa a vazão <strong>penalizada</strong> no mesmo algoritmo do baseline</li>
+        </ul>
+      </div>
+      <div class="col formula">fator = min(jitter_ewma_ms / 500, 0.40)
+vazão_efetiva = vazão_medida * (1 - fator)
+# escolhe qualidade como no baseline,
+# mas usando vazão_efetiva</div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 3:</span> "A ideia da política 3 é: quando a entrega dos pacotes está instável (jitter alto), a vazão medida é menos confiável como previsão do próximo segmento. Em vez de confiar 100% nela como o baseline faz, descontamos uma penalidade proporcional ao jitter, suavizado por EWMA pra não reagir a um pico isolado. O desconto é limitado a 40% pra não degradar demais a qualidade só por um soluço pontual na rede."</p>
+    </details>
+  </section>
+
+  <!-- 13 -->
+  <section class="slide">
+    <span class="tag">Integrante 3 · Resultados</span>
+    <h1>Política 3 — resultado com jitter</h1>
+    <div class="content">
+      <div class="imgbox">
+        <img src="output/padrao/heuristica/log_grafico_com_jitter.png" alt="Gráfico heurística com jitter">
+        <div class="cap">output/padrao/heuristica/log_grafico_com_jitter.png</div>
+      </div>
+      <div class="col">
+        <ul>
+          <li>3º eixo mostra o jitter EWMA (ms) junto com buffer e qualidade</li>
+          <li>Quando o jitter sobe, a vazão efetiva cai → qualidade reage mesmo sem queda real de banda</li>
+          <li class="muted">Recomendado: trazer também o gráfico do cenário de simulação de jitter (<code>simular_jitter.sh</code>) da sessão real, que mostra o efeito de forma mais clara</li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 3:</span> "Esse gráfico já mostra os três sinais juntos: o jitter EWMA em laranja, a qualidade em vermelho e o buffer em verde. <strong>[Se houver, trocar aqui pelo gráfico gerado durante a simulação de jitter com <code>tc netem</code>, que mostra o pico de jitter e a reação da política lado a lado de forma mais didática]</strong>. O ponto central pra explicar pro professor: essa política não está reagindo à banda real caindo, está reagindo à instabilidade na entrega — é uma proteção diferente da política 2."</p>
+    </details>
+  </section>
+
+  <!-- 14 -->
+  <section class="slide">
+    <span class="tag">Integrante 3 · Wireshark</span>
+    <h1>Análise de camadas — Wireshark</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>Captura com filtro <code>tcp.port == 8080</code> durante o teste de failover</li>
+          <li>No momento da queda: <strong>TCP RST/FIN do servidor A</strong> seguido de <strong>novo TCP SYN para o servidor B</strong></li>
+          <li>Correlacionar o <code>timestamp</code> do Wireshark com o <code>timestamp</code> do segmento no CSV (mesmo relógio do sistema)</li>
+          <li>Script usado: <code>arquivos_teste/teste_failover_wireshark.sh</code> (derruba A via <code>iptables DROP</code>)</li>
+        </ul>
+      </div>
+      <div class="col">
+        <p class="muted">⚠️ Print do Wireshark anotado precisa ser inserido aqui (capturado durante a apresentação ao vivo ou em ensaio).</p>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 3:</span> "Aqui é onde conectamos a aplicação com o que o TCP está fazendo de fato. Rodamos o <code>teste_failover_wireshark.sh</code>, que insere uma regra <code>iptables DROP</code> pra simular a porta 8080 inacessível, com o Wireshark capturando em paralelo. No print [mostrar], dá pra ver o RST do servidor A no exato segundo em que o CSV mostra <code>download_time_s</code> disparando pra 6 segundos, seguido do SYN pro servidor B — é a prova de que o failover da aplicação está sincronizado com o que acontece na camada de transporte."</p>
+    </details>
+  </section>
+
+  <!-- 15 -->
+  <section class="slide">
+    <span class="tag">Integrante 3 · Discussão</span>
+    <h1>Comparação das 3 políticas</h1>
+    <div class="content">
+      <div class="col">
+        <table>
+          <tr><th>Política</th><th>Reage a</th><th>Pontos fortes</th><th>Risco</th></tr>
+          <tr><td>1 — Rate-Based</td><td>Vazão do último segmento</td><td>Simples, reage rápido em rede estável</td><td>Oscila / atrasa reação em rede instável</td></tr>
+          <tr><td>2 — Buffer-Based (BBA2)</td><td>Nível do buffer</td><td>Histerese evita ping-pong</td><td>Pode demorar a reagir a queda súbita</td></tr>
+          <tr><td>3 — Heurística (Jitter EWMA)</td><td>Vazão penalizada por instabilidade</td><td>Único que trata jitter explicitamente</td><td>Parâmetros (500ms, 40%) calibrados empiricamente</td></tr>
+        </table>
+        <p class="muted">Preencher com números (rebuffer_event, troca de qualidade, buffer mínimo) da sessão de apresentação real antes de apresentar.</p>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Integrante 3:</span> "Não existe uma política estritamente melhor em todo cenário — cada uma foi desenhada pra um tipo de problema diferente. <strong>[Aqui é pra citar números concretos da sessão do dia: 'a política 3 teve X eventos de rebuffer contra Y do baseline, no mesmo cenário de banda', etc. — números, não opinião, como o próprio roteiro pede]</strong>."</p>
+    </details>
+  </section>
+
+  <!-- 16 -->
+  <section class="slide">
+    <span class="tag">Conclusão</span>
+    <h1>Conclusão e pontos de atenção</h1>
+    <div class="content">
+      <div class="col">
+        <ul>
+          <li>As 3 políticas, o failover e a estimativa de buffer estão implementados e validados com dados reais</li>
+          <li>Cada decisão do ABR é rastreável no CSV, segmento a segmento</li>
+          <li>O failover foi correlacionado com a camada TCP via Wireshark</li>
+        </ul>
+        <h3>Cenário surpresa — pontos pra ter na ponta da língua</h3>
+        <ul>
+          <li>Onde no código a decisão ABR é tomada: <code>selecionar_qualidade_*</code> em <code>ClienteDash.py</code></li>
+          <li>Quanto tempo levou o failover na demo: olhar <code>download_time_s</code> do segmento da troca</li>
+          <li>Se o buffer era suficiente: olhar <code>buffer_level_s</code> antes do segmento da troca (precisa ser ≳ ao tempo extra do failover)</li>
+          <li>O que aconteceria com buffer &lt; 4s na queda: <code>buffer_can_play</code> iria a 0 e geraria <code>rebuffer_event</code></li>
+        </ul>
+      </div>
+    </div>
+    <details><summary>Roteiro de fala</summary>
+      <p><span class="speaker">Todos:</span> "Pra fechar: o sistema cobre as quatro tarefas pedidas — baseline, política 2 com failover, política 3 com jitter, e a análise Wireshark — tudo com dados reais coletados pela gente. Ficamos à disposição para o cenário surpresa."</p>
+    </details>
+  </section>
+
+</div>
+
+<div class="bar">
+  <button id="prev" onclick="go(-1)">← Anterior</button>
+  <span><span id="count">1</span> / <span id="total"></span> &nbsp;|&nbsp; <span class="muted">setas do teclado também navegam · clique em "Roteiro de fala" pra ver as falas</span></span>
+  <button id="next" onclick="go(1)">Próximo →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  document.getElementById('total').textContent = slides.length;
+  function render(){
+    slides.forEach((s,i)=>s.classList.toggle('active', i===idx));
+    document.getElementById('count').textContent = idx+1;
+    document.getElementById('prev').disabled = idx===0;
+    document.getElementById('next').disabled = idx===slides.length-1;
+  }
+  function go(d){
+    idx = Math.min(slides.length-1, Math.max(0, idx+d));
+    render();
+  }
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight' || e.key===' ') go(1);
+    if(e.key==='ArrowLeft') go(-1);
+  });
+  render();
+</script>
+</body>
+</html>

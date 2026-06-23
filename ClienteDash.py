@@ -276,30 +276,65 @@ class ClienteDash:
 
 
     def selecionar_qualidade_heuristica_jitter(self, margem_seguranca):
-        """ Política 3: Heurística com Penalidade por Jitter EWMA """
-        representacoes = self.manifesto["representations"]
-        self.qualidade_escolhida = representacoes[0]
-        
-        # Heurística: Penalizamos a vazão medida proporcionalmente ao Jitter EWMA
+        """ Política 3: evolução da Política 2 (Buffer-Based) com penalidade por Jitter EWMA.
+        Mesma estrutura de fases da BBA2 (arranque por vazão, depois por buffer), mas o
+        jitter penaliza a vazão usada tanto no arranque quanto no teto de banda da fase de buffer,
+        em vez de decidir só pela vazão (o que causava ping-pong, igual o baseline)."""
+        representacoes = sorted(self.manifesto["representations"], key=lambda k: k['bitrate_kbps'])
+
+        # Heurística: penalizamos a vazão medida proporcionalmente ao Jitter EWMA
         # Define-se que 500ms de Jitter EWMA representam o cenário crítico (100% de penalidade aplicável)
         fator_instabilidade = self.jitter_ewma_ms / 500.0
-        
-        # Limitamos a penalidade a no máximo 40% de corte na vazão para evitar degradação excessiva
-        penalidade_maxima = 0.40 
-        fator_penalidade = min(fator_instabilidade, penalidade_maxima)
-        
-        # Calcula a banda efetiva (banda medida descontando o risco da instabilidade)
-        banda_estimada_kbps = self.bandwidth_kbps * (1.0 - fator_penalidade)
-        
-        print(f"    [Heurística] Banda Nominal: {self.bandwidth_kbps:.2f} kbps | Jitter EWMA: {self.jitter_ewma_ms:.2f} ms | Banda Efetiva: {banda_estimada_kbps:.2f} kbps")
 
-        # Seleciona a qualidade usando a banda estimada penalizada
-        for rep in representacoes:
-            vazao_exigida_com_folga = rep["bitrate_kbps"] * margem_seguranca
-            if banda_estimada_kbps >= vazao_exigida_com_folga:
-                self.qualidade_escolhida = rep
-            else:
-                break
+        # Limitamos a penalidade a no máximo 40% de corte na vazão para evitar degradação excessiva
+        penalidade_maxima = 0.40
+        fator_penalidade = min(fator_instabilidade, penalidade_maxima)
+
+        # Banda efetiva (banda medida descontando o risco da instabilidade) usada nas duas fases abaixo
+        banda_efetiva_kbps = self.bandwidth_kbps * (1.0 - fator_penalidade)
+
+        print(f"    [Heurística] Banda Nominal: {self.bandwidth_kbps:.2f} kbps | Jitter EWMA: {self.jitter_ewma_ms:.2f} ms | Banda Efetiva: {banda_efetiva_kbps:.2f} kbps")
+
+        nivel_buffer = self.buffer.nivel_atual_s
+        LIMITE_CONFORTO_S = 24
+
+        if nivel_buffer >= LIMITE_CONFORTO_S:
+            self.fase_arranque_ativa = False
+
+        if self.fase_arranque_ativa:
+            # Fase de Arranque: igual ao Rate-Based, mas usando a banda já penalizada pelo jitter
+            self.qualidade_escolhida = representacoes[0]
+            for rep in representacoes:
+                if banda_efetiva_kbps >= rep["bitrate_kbps"] * margem_seguranca:
+                    self.qualidade_escolhida = rep
+                else:
+                    break
+            return
+
+        # Fase de Buffer: mesma lógica de índice e histerese da Política 2 (BBA0)
+        BUFFER_MIN = 10.0
+        BUFFER_MAX = 30.0
+
+        if nivel_buffer <= BUFFER_MIN:
+            novo_indice = 0
+        elif nivel_buffer >= BUFFER_MAX:
+            novo_indice = len(representacoes) - 1
+        else:
+            progresso = (nivel_buffer - BUFFER_MIN) / (BUFFER_MAX - BUFFER_MIN)
+            novo_indice = round(progresso * (len(representacoes) - 1))
+
+        if self.qualidade_escolhida is not None:
+            indice_atual = representacoes.index(self.qualidade_escolhida)
+            if novo_indice < indice_atual:
+                if nivel_buffer > (BUFFER_MAX * 0.8):
+                    novo_indice = indice_atual
+
+        # Teto de Banda usando a vazão JÁ penalizada pelo jitter (diferença em relação à BBA2)
+        limite_banda = banda_efetiva_kbps * 1.8
+        while novo_indice > 0 and representacoes[novo_indice]['bitrate_kbps'] > limite_banda:
+            novo_indice -= 1
+
+        self.qualidade_escolhida = representacoes[novo_indice]
 
 
     def executar(self, num_segmentos_simulados=10, nome_arquivo="output/log_baseline.csv", modo_abr="rate_based", margem_seguranca=1):
